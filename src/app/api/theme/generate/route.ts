@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     const systemPrompt = `
       You are an expert UI/UX designer. Your task is to generate a JSON object representing design tokens based on a user's description.
