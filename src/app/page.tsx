@@ -1,6 +1,6 @@
 "use client";
 
-import { useTheme } from "@/context/ThemeProvider";
+import { useTheme } from "@/context/ThemeContext";
 import { useState } from "react";
 
 export default function Home() {
