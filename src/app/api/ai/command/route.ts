@@ -5,20 +5,20 @@ import { db } from "@/lib/firebaseAdmin";
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 export async function POST(req: NextRequest) {
-    try {
-        const { command } = await req.json();
+  try {
+    const { command } = await req.json();
 
-        if (!command) {
-            return NextResponse.json({ error: "Command is required" }, { status: 400 });
-        }
+    if (!command) {
+      return NextResponse.json({ error: "Command is required" }, { status: 400 });
+    }
 
-        if (!process.env.GEMINI_API_KEY) {
-            return NextResponse.json({ error: "Gemini API Key is missing" }, { status: 500 });
-        }
+    if (!process.env.GEMINI_API_KEY) {
+      return NextResponse.json({ error: "Gemini API Key is missing" }, { status: 500 });
+    }
 
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
 
-        const systemPrompt = `
+    const systemPrompt = `
 You are an AI assistant that helps users modify their portfolio website through natural language commands.
 
 Your task is to interpret user commands and generate JSON configurations for portfolio sections.
@@ -96,62 +96,63 @@ IMPORTANT:
 - For "update" actions, include only the fields that need to change
 `;
 
-        const result = await model.generateContent([
-            systemPrompt,
-            `User command: ${command}`,
-        ]);
+    const result = await model.generateContent([
+      systemPrompt,
+      `User command: ${command}`,
+    ]);
 
-        const responseText = result.response.text();
+    const responseText = result.response.text();
 
-        // Extract JSON from markdown code blocks if present
-        let jsonText = responseText;
-        const jsonMatch = responseText.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
-        if (jsonMatch) {
-            jsonText = jsonMatch[1];
-        }
-
-        const aiResponse = JSON.parse(jsonText);
-
-        // Validate response structure
-        if (!aiResponse.action || !aiResponse.sectionType || !aiResponse.data) {
-            throw new Error("Invalid AI response structure");
-        }
-
-        // Save to Firestore
-        const sectionRef = db
-            .collection("portfolios")
-            .doc("default")
-            .collection("sections")
-            .doc(aiResponse.sectionId);
-
-        if (aiResponse.action === "delete") {
-            await sectionRef.delete();
-        } else {
-            await sectionRef.set({
-                type: aiResponse.sectionType,
-                content: aiResponse.data,
-                visible: true,
-                order: Date.now(), // Use timestamp for ordering
-                createdAt: new Date().toISOString(),
-            });
-        }
-
-        return NextResponse.json({
-            success: true,
-            action: aiResponse.action,
-            sectionType: aiResponse.sectionType,
-            explanation: aiResponse.explanation,
-            data: aiResponse.data,
-        });
-
-    } catch (error: any) {
-        console.error("AI Command Error:", error);
-        return NextResponse.json(
-            {
-                error: error.message || "Failed to process command",
-                details: error.toString()
-            },
-            { status: 500 }
-        );
+    // Extract JSON from markdown code blocks if present
+    let jsonText = responseText;
+    const jsonMatch = responseText.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+    if (jsonMatch) {
+      jsonText = jsonMatch[1];
     }
+
+    const aiResponse = JSON.parse(jsonText);
+
+    // Validate response structure
+    if (!aiResponse.action || !aiResponse.sectionType || !aiResponse.data) {
+      throw new Error("Invalid AI response structure");
+    }
+
+    // Save to Firestore
+    const firestore = db();
+    const sectionRef = firestore
+      .collection("portfolios")
+      .doc("default")
+      .collection("sections")
+      .doc(aiResponse.sectionId);
+
+    if (aiResponse.action === "delete") {
+      await sectionRef.delete();
+    } else {
+      await sectionRef.set({
+        type: aiResponse.sectionType,
+        content: aiResponse.data,
+        visible: true,
+        order: Date.now(), // Use timestamp for ordering
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    return NextResponse.json({
+      success: true,
+      action: aiResponse.action,
+      sectionType: aiResponse.sectionType,
+      explanation: aiResponse.explanation,
+      data: aiResponse.data,
+    });
+
+  } catch (error: any) {
+    console.error("AI Command Error:", error);
+    return NextResponse.json(
+      {
+        error: error.message || "Failed to process command",
+        details: error.toString()
+      },
+      { status: 500 }
+    );
+  }
 }
