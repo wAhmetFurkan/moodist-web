@@ -27,6 +27,8 @@ interface Project {
   order: number;
 }
 
+import SectionRenderer from "@/components/SectionRenderer";
+
 export default function PortfolioPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -197,6 +199,9 @@ export default function PortfolioPage() {
           </div>
         )}
       </section>
+
+      {/* AI-Generated Sections */}
+      <SectionRenderer />
 
       {/* Admin Link (Fixed bottom-right) */}
       <Link
