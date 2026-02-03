@@ -1,125 +1,210 @@
 "use client";
 
-import { useTheme } from "@/context/ThemeContext";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { db } from "@/lib/firebase";
+import { doc, getDoc, collection, getDocs, query, orderBy } from "firebase/firestore";
+import Link from "next/link";
 
-export default function Home() {
-  const { tokens, isLoading } = useTheme();
-  const [prompt, setPrompt] = useState("");
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [message, setMessage] = useState("");
-
-  const generateTheme = async () => {
-    if (!prompt) return;
-    setIsGenerating(true);
-    setMessage("Dreaming up your theme... ✨");
-
-    try {
-      const res = await fetch("/api/theme/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt }),
-      });
-
-      const data = await res.json();
-
-      if (data.success) {
-        setMessage(`Theme "${data.themeName}" created! Watch it apply live...`);
-        setPrompt("");
-      } else if (data.debugInfo) {
-        // Pretty print debug info
-        console.log("Debug Info:", data.debugInfo);
-        const models = data.debugInfo.models ? data.debugInfo.models.map((m: any) => m.name).join(", ") : "No models found";
-        setMessage(`DEBUG: Available Models: ${models}`);
-      } else {
-        setMessage(`Error: ${data.error}`);
-      }
-    } catch (error) {
-      setMessage("Something went wrong.");
-    } finally {
-      setIsGenerating(false);
-    }
+interface Profile {
+  name: string;
+  title: string;
+  bio: string;
+  avatar?: string;
+  social?: {
+    github?: string;
+    linkedin?: string;
+    email?: string;
   };
-
-  return (
-    <div className="min-h-screen p-8 sm:p-20 font-sans gap-16 transition-colors duration-500">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start max-w-4xl mx-auto">
-
-        <header className="mb-8 w-full">
-          <h1 className="text-4xl font-bold mb-4 font-heading text-foreground">
-            Moodist Architecture
-          </h1>
-          <div className="flex justify-between items-center">
-            <p className="text-muted text-lg">
-              Theme Name: <span className="font-mono font-bold text-primary">{tokens.themeName}</span>
-            </p>
-            {isLoading && <span className="text-xs animate-pulse text-muted">Thinking...</span>}
-          </div>
-        </header>
-
-        <section className="w-full p-6 border border-border rounded-lg bg-card shadow-sm">
-          <h2 className="text-2xl font-bold mb-4">AI Theme Generator</h2>
-          <p className="mb-4 text-muted">Describe a mood, place, or style, and Gemini will paint it for you.</p>
-          <div className="flex gap-4 flex-col sm:flex-row">
-            <input
-              type="text"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder="e.g., 'A rainy cyberpunk alleyway at midnight'"
-              className="flex-1 p-3 rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-              disabled={isGenerating}
-              onKeyDown={(e) => e.key === "Enter" && generateTheme()}
-            />
-            <button
-              onClick={generateTheme}
-              disabled={isGenerating || !prompt}
-              className="px-6 py-3 rounded-md bg-accent text-accent-foreground font-bold hover:opacity-90 disabled:opacity-50 transition-all whitespace-nowrap"
-            >
-              {isGenerating ? "Generating..." : "Generate Theme"}
-            </button>
-          </div>
-          {message && <p className="mt-3 text-sm font-medium text-primary">{message}</p>}
-        </section>
-
-        <section className="w-full">
-          <h2 className="text-2xl font-bold mb-6 border-b border-border pb-2">Color Palette</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-
-            <ColorCard name="Background" variable="bg-background" text="text-foreground" border="border-border" />
-            <ColorCard name="Foreground" variable="bg-foreground" text="text-background" />
-
-            <ColorCard name="Primary" variable="bg-primary" text="text-primary-foreground" />
-            <ColorCard name="Secondary" variable="bg-secondary" text="text-secondary-foreground" />
-
-            <ColorCard name="Accent" variable="bg-accent" text="text-accent-foreground" />
-            <ColorCard name="Muted" variable="bg-muted" text="text-white" />
-
-          </div>
-        </section>
-
-        <section className="w-full">
-          <h2 className="text-2xl font-bold mb-6 border-b border-border pb-2">Typography & Spacing</h2>
-          <div className="space-y-4 p-6 border border-border rounded-lg bg-card">
-            <h1 className="text-4xl font-heading">Heading 1</h1>
-            <h2 className="text-3xl font-heading">Heading 2</h2>
-            <h3 className="text-2xl font-heading">Heading 3</h3>
-            <p className="font-sans leading-relaxed">
-              This is a paragraph using the body font. The spacing between elements is controlled by the design tokens.
-              Theme agnosticism allows us to change the entire feel of the application without touching the markup.
-            </p>
-          </div>
-        </section>
-
-      </main>
-    </div>
-  );
 }
 
-function ColorCard({ name, variable, text, border = "border-transparent" }: { name: string, variable: string, text: string, border?: string }) {
+interface Project {
+  id: string;
+  title: string;
+  description: string;
+  image?: string;
+  tags: string[];
+  link?: string;
+  order: number;
+}
+
+export default function PortfolioPage() {
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        // Fetch profile
+        const profileDoc = await getDoc(doc(db, "portfolios", "default", "profile", "main"));
+        if (profileDoc.exists()) {
+          setProfile(profileDoc.data() as Profile);
+        }
+
+        // Fetch projects
+        const projectsQuery = query(
+          collection(db, "portfolios", "default", "projects"),
+          orderBy("order", "asc")
+        );
+        const projectsSnapshot = await getDocs(projectsQuery);
+        const projectsData = projectsSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as Project[];
+        setProjects(projectsData);
+      } catch (error) {
+        console.error("Error fetching portfolio data:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600 text-lg">Portföy yükleniyor...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className={`p-6 rounded-lg shadow-sm border ${border} ${variable} ${text} flex flex-col justify-between aspect-square transition-colors duration-500`}>
-      <span className="font-bold">{name}</span>
-      <span className="text-xs opacity-80">{variable}</span>
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50">
+      {/* Hero Section */}
+      <section className="relative overflow-hidden bg-gradient-to-r from-blue-600 to-indigo-700 text-white">
+        <div className="absolute inset-0 bg-black opacity-10"></div>
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 md:py-32">
+          <div className="text-center">
+            {profile?.avatar && (
+              <img
+                src={profile.avatar}
+                alt={profile.name}
+                className="w-32 h-32 rounded-full mx-auto mb-6 border-4 border-white shadow-xl"
+              />
+            )}
+            <h1 className="text-5xl md:text-6xl font-bold mb-4">
+              {profile?.name || "Portföy Sahibi"}
+            </h1>
+            <p className="text-2xl md:text-3xl text-blue-100 mb-6">
+              {profile?.title || "Geliştirici"}
+            </p>
+            <p className="text-lg md:text-xl text-blue-50 max-w-2xl mx-auto mb-8">
+              {profile?.bio || "Henüz profil bilgisi eklenmedi. Admin panelinden profilinizi oluşturun."}
+            </p>
+
+            {/* Social Links */}
+            {profile?.social && (
+              <div className="flex justify-center gap-4">
+                {profile.social.github && (
+                  <a
+                    href={profile.social.github}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-6 py-3 bg-white text-blue-600 rounded-lg font-semibold hover:bg-blue-50 transition-colors"
+                  >
+                    GitHub
+                  </a>
+                )}
+                {profile.social.linkedin && (
+                  <a
+                    href={profile.social.linkedin}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-6 py-3 bg-white text-blue-600 rounded-lg font-semibold hover:bg-blue-50 transition-colors"
+                  >
+                    LinkedIn
+                  </a>
+                )}
+                {profile.social.email && (
+                  <a
+                    href={`mailto:${profile.social.email}`}
+                    className="px-6 py-3 bg-white text-blue-600 rounded-lg font-semibold hover:bg-blue-50 transition-colors"
+                  >
+                    İletişim
+                  </a>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* Projects Section */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+        <h2 className="text-4xl font-bold text-gray-900 mb-12 text-center">Projelerim</h2>
+
+        {projects.length === 0 ? (
+          <div className="text-center py-12">
+            <p className="text-gray-600 text-lg mb-4">Henüz proje eklenmedi.</p>
+            <Link
+              href="/admin/projects"
+              className="inline-block px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
+            >
+              İlk Projenizi Ekleyin
+            </Link>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {projects.map((project) => (
+              <div
+                key={project.id}
+                className="bg-white rounded-xl shadow-lg overflow-hidden hover:shadow-xl transition-shadow"
+              >
+                {project.image && (
+                  <img
+                    src={project.image}
+                    alt={project.title}
+                    className="w-full h-48 object-cover"
+                  />
+                )}
+                <div className="p-6">
+                  <h3 className="text-2xl font-bold text-gray-900 mb-2">{project.title}</h3>
+                  <p className="text-gray-600 mb-4">{project.description}</p>
+
+                  {/* Tags */}
+                  {project.tags && project.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {project.tags.map((tag, index) => (
+                        <span
+                          key={index}
+                          className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm font-medium"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Link */}
+                  {project.link && (
+                    <a
+                      href={project.link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-block px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
+                    >
+                      Projeyi Görüntüle →
+                    </a>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Admin Link (Fixed bottom-right) */}
+      <Link
+        href="/admin"
+        className="fixed bottom-6 right-6 px-6 py-3 bg-gray-900 text-white rounded-full shadow-lg hover:bg-gray-800 transition-colors font-semibold"
+      >
+        Admin Paneli →
+      </Link>
     </div>
   );
 }
