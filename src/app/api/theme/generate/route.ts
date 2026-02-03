@@ -85,7 +85,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Update Firestore
-    await db.collection("themes").doc("active_theme").set(tokens);
+    await db().collection("themes").doc("active_theme").set(tokens);
 
     return NextResponse.json({ success: true, themeName: tokens.themeName });
 
