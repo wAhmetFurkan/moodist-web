@@ -26,6 +26,11 @@ export default function Home() {
       if (data.success) {
         setMessage(`Theme "${data.themeName}" created! Watch it apply live...`);
         setPrompt("");
+      } else if (data.debugInfo) {
+        // Pretty print debug info
+        console.log("Debug Info:", data.debugInfo);
+        const models = data.debugInfo.models ? data.debugInfo.models.map((m: any) => m.name).join(", ") : "No models found";
+        setMessage(`DEBUG: Available Models: ${models}`);
       } else {
         setMessage(`Error: ${data.error}`);
       }
